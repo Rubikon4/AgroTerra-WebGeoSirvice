@@ -22,9 +22,9 @@ fetch('russianGeo.geojson')
 
         // Добавляем маркеры в центры областей
         geoData.features.forEach(feature => {
-            const center = getRegionCenter(feature.geometry.coordinates);
+            const center = getRegionCenter(feature.geometry.coordinates, feature.geometry.type);
+
             const regionName = feature.properties.shapeName;
-            console.log(regionName, center) // DELETE AFTER BUG-DETECT
             const regionKey = getRegionKey(regionName); // Для запроса на backend
 
             const marker = L.marker(center).addTo(map);
@@ -54,32 +54,50 @@ fetch('russianGeo.geojson')
     });
 
 // Функция расчёта центра области (приближённо)
-/* function getRegionCenter(coordinates) {  // Нерабочий вариант вычисления центра
-    const polygon = coordinates[0][0];
-    let latSum = 0, lonSum = 0;
-    polygon.forEach(point => {
-        lonSum += point[0];
-        latSum += point[1];
-    });
-    const lat = latSum / polygon.length;
-    const lon = lonSum / polygon.length;
-    return [lat, lon];
-} */ 
-/*function getRegionCenter(coordinates) {   // Рабочая только на Тулу
-    const polygon = coordinates[0]; // первое кольцо
+function getRegionCenter(coordinates, type) {   // функция для учета обоих вариантов полигональности
     let latSum = 0, lonSum = 0, count = 0;
 
-    polygon.forEach(ring => { // точки кольца
-        lonSum += ring[0];
-        latSum += ring[1];
+    if (type === 'Polygon') {
+        const ring = coordinates[0]; // первое кольцо
+        ring.forEach(point => {
+            lonSum += point[0];
+            latSum += point[1];
+            count++;
+        });
+    } else if (type === 'MultiPolygon') {
+        coordinates.forEach(polygon => { // каждый многоугольник
+            const ring = polygon[0];     // его первое кольцо
+            ring.forEach(point => {
+                lonSum += point[0];
+                latSum += point[1];
+                count++;
+            });
+        });
+    }
+
+    const lat = latSum / count;
+    const lon = lonSum / count;
+    return [lat, lon];
+}
+
+/*
+function getRegionCenter(coordinates) { // функция для расчета полигонального geojson
+    const ring = coordinates[0]; // Берём первое (и единственное) кольцо
+
+    let latSum = 0, lonSum = 0, count = 0;
+    ring.forEach(point => {
+        lonSum += point[0];
+        latSum += point[1];
         count++;
     });
 
     const lat = latSum / count;
     const lon = lonSum / count;
     return [lat, lon];
-}*/ 
-function getRegionCenter(coordinates) {
+}
+*/ 
+/*
+function getRegionCenter(coordinates) { // функция для расчета мультиполигонального geojson
     let latSum = 0, lonSum = 0, count = 0;
     
     coordinates.forEach(polygon => { // перебираем каждый многоугольник
@@ -96,6 +114,7 @@ function getRegionCenter(coordinates) {
     const lon = lonSum / count;
     return [lat, lon];
 }
+*/
 
 // Преобразование названий областей для backend
 function getRegionKey(regionName) {

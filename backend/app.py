@@ -1,9 +1,21 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
+
 import requests
 from regions import Regions
 
 app = Flask(__name__)
 
+# Раздача index.html
+@app.route('/')
+def Index():
+    return send_from_directory('../frontend', 'index.html')
+
+# Раздача всех статических файлов (JS, CSS, GeoJSON)
+@app.route('/<path:path>')
+def StaticFiles(path):
+    return send_from_directory('../frontend', path)
+
+# API для получения метеоданных
 @app.route('/api/weather', methods=['GET'])
 def GetWeather():
     regionKey = request.args.get('region')

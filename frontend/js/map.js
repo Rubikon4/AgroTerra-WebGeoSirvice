@@ -23,14 +23,12 @@ fetch('russianGeo.geojson')
         // Добавляем маркеры в центры областей
         geoData.features.forEach(feature => {
             const center = getRegionCenter(feature.geometry.coordinates, feature.geometry.type);
-
-            const regionName = feature.properties.shapeName;
-            const regionKey = getRegionKey(regionName); // Для запроса на backend
+            const regionData = getRegionKey(feature.properties.shapeName); // key + name (рус)
 
             const marker = L.marker(center).addTo(map);
 
             marker.on('click', async () => {
-                const weather = await fetchWeatherData(regionKey);
+                const weather = await fetchWeatherData(regionData.key);
 
                 if (weather) {
                     const daily = weather.data.daily;
@@ -40,33 +38,62 @@ fetch('russianGeo.geojson')
                     const rain = daily.precipitationSum[0];
                     const wind = hourly.windSpeed[0];
 
-                    marker.bindPopup(
-                        `<b>${regionName}</b><br>
+                    // Базовый popup с кнопкой
+                    const popupContent = `
+                        <b>${regionData.name}</b><br>
                         Температура макс: ${temp} °C<br>
                         Осадки: ${rain} мм<br>
-                        Ветер: ${wind} км/ч`
-                    ).openPopup();
+                        Ветер: ${wind} км/ч<br>
+                        <button class="expand-btn">Подробнее</button>
+                    `;
+
+                    marker.bindPopup(popupContent).openPopup();
+
+                    // Обработка кнопки после отрисовки popup
+                    marker.on('popupopen', () => {
+                        const popupElement = marker.getPopup().getElement();
+                        setTimeout(() => {
+                            const button = popupElement.querySelector('.expand-btn');
+                            if (button) {
+                                button.addEventListener('click', () => {
+                                    const fullContent = `
+                                        <b>${regionData.name}</b><br>
+                                        Температура макс: ${temp} °C<br>
+                                        Осадки: ${rain} мм<br>
+                                        Ветер: ${wind} км/ч<br>
+                                        Давление: ${hourly.pressure[0]} гПа<br>
+                                        Влажность: ${hourly.humidity[0]} %<br>
+                                        Облачность: ${hourly.cloudCover[0]} %<br>
+                                        Видимость: ${hourly.visibility[0]} м<br>
+                                        Индекс УФ: ${daily.uvIndexMax[0]}
+                                    `;
+                                    marker.setPopupContent(fullContent);
+                                });
+                            }
+                        }, 50); // небольшая задержка
+                    });
+
                 } else {
-                    marker.bindPopup(`<b>${regionName}</b><br>Данные недоступны`).openPopup();
+                    marker.bindPopup(`<b>${regionData.name}</b><br>Данные недоступны`).openPopup();
                 }
             });
         });
     });
 
-// Функция расчёта центра области (приближённо)
-function getRegionCenter(coordinates, type) {   // функция для учета обоих вариантов полигональности
+// Функция расчёта центра области (Polygon + MultiPolygon)
+function getRegionCenter(coordinates, type) {
     let latSum = 0, lonSum = 0, count = 0;
 
     if (type === 'Polygon') {
-        const ring = coordinates[0]; // первое кольцо
+        const ring = coordinates[0];
         ring.forEach(point => {
             lonSum += point[0];
             latSum += point[1];
             count++;
         });
     } else if (type === 'MultiPolygon') {
-        coordinates.forEach(polygon => { // каждый многоугольник
-            const ring = polygon[0];     // его первое кольцо
+        coordinates.forEach(polygon => {
+            const ring = polygon[0];
             ring.forEach(point => {
                 lonSum += point[0];
                 latSum += point[1];
@@ -75,57 +102,19 @@ function getRegionCenter(coordinates, type) {   // функция для уче�
         });
     }
 
-    const lat = latSum / count;
-    const lon = lonSum / count;
-    return [lat, lon];
+    return [latSum / count, lonSum / count];
 }
 
-/*
-function getRegionCenter(coordinates) { // функция для расчета полигонального geojson
-    const ring = coordinates[0]; // Берём первое (и единственное) кольцо
-
-    let latSum = 0, lonSum = 0, count = 0;
-    ring.forEach(point => {
-        lonSum += point[0];
-        latSum += point[1];
-        count++;
-    });
-
-    const lat = latSum / count;
-    const lon = lonSum / count;
-    return [lat, lon];
-}
-*/ 
-/*
-function getRegionCenter(coordinates) { // функция для расчета мультиполигонального geojson
-    let latSum = 0, lonSum = 0, count = 0;
-    
-    coordinates.forEach(polygon => { // перебираем каждый многоугольник
-        polygon.forEach(ring => {    // перебираем каждое кольцо
-            ring.forEach(point => {  // перебираем каждую точку
-                lonSum += point[0];
-                latSum += point[1];
-                count++;
-            });
-        });
-    });
-    
-    const lat = latSum / count;
-    const lon = lonSum / count;
-    return [lat, lon];
-}
-*/
-
-// Преобразование названий областей для backend
+// Преобразование названий областей (key + name)
 function getRegionKey(regionName) {
     const mapping = {
-        "Ryazan Oblast": "ryazan",
-        "Tula Oblast": "tula",
-        "Penza Oblast": "penza",
-        "Oryol Oblast": "orel",
-        "Lipetsk Oblast": "lipetsk",
-        "Tambov Oblast": "tambov",
-        "Kursk Oblast": "kursk"
+        "Ryazan Oblast": { key: "ryazan", name: "Рязанская область" },
+        "Tula Oblast": { key: "tula", name: "Тульская область" },
+        "Penza Oblast": { key: "penza", name: "Пензенская область" },
+        "Oryol Oblast": { key: "orel", name: "Орловская область" },
+        "Lipetsk Oblast": { key: "lipetsk", name: "Липецкая область" },
+        "Tambov Oblast": { key: "tambov", name: "Тамбовская область" },
+        "Kursk Oblast": { key: "kursk", name: "Курская область" }
     };
     return mapping[regionName];
 }

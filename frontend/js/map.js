@@ -8,21 +8,9 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 // Кэш для метеоданных
 const weatherCache = {};
 
-// ⬇ Создаём глобальный popup как отдельный DOM-блок
-const globalPopup = document.createElement('div');
-globalPopup.id = 'weather-popup';
-globalPopup.style.position = 'absolute';
-globalPopup.style.top = '20px'; // можно изменить на 'bottom', 'left', 'right'
-globalPopup.style.right = '20px';
-globalPopup.style.zIndex = '1000';
-globalPopup.style.background = 'white';
-globalPopup.style.padding = '10px';
-globalPopup.style.border = '1px solid #ccc';
-globalPopup.style.borderRadius = '8px';
-globalPopup.style.minWidth = '200px';
-globalPopup.style.display = 'none'; // скрыт по умолчанию
-globalPopup.style.boxShadow = '0 2px 10px rgba(0,0,0,0.15)';
-document.body.appendChild(globalPopup);
+// Создает глобальный popup как отдельный DOM блок
+const globalPopup = document.getElementById('weather-popup'); 
+
 
 // Загрузка границ и погоды
 Promise.all([
@@ -35,9 +23,9 @@ Promise.all([
     }
 
     Object.assign(weatherCache, weatherData);
-    console.log('Погода загружена и закеширована:', weatherCache);
+    console.log('Погода загружена и закеширована:', weatherCache);    // проверка в логах
 
-    // Отображаем границы
+    // Отображает границы
     L.geoJSON(geoData, {
         style: {
             color: '#3388ff',
@@ -54,7 +42,7 @@ Promise.all([
         const marker = L.marker(center).addTo(map);
 
         marker.on('click', () => {
-            console.log(`Клик по маркеру: ${regionData.name}`);
+            console.log(`Клик по маркеру: ${regionData.name}`);    // проверка в логах
             const weather = weatherCache[regionData.key];
 
             if (!weather) {
@@ -79,15 +67,16 @@ Promise.all([
             `;
 
             showGlobalPopup(popupContent);
+            setupExpandHandler(regionData, temp, rain, wind, hourly, daily, popupContent);
 
             // Таймаут нужен, чтобы DOM успел вставить кнопку
             setTimeout(() => {
                 const btn = document.getElementById('expand-btn');
-                console.log('Ищу кнопку "Подробнее":', btn);
+                console.log('Ищу кнопку "Подробнее":', btn);    // проверка в логах
 
                 if (btn) {
                     btn.addEventListener('click', () => {
-                        console.log('Нажали на кнопку "Подробнее"');
+                        console.log('Нажали на кнопку "Подробнее"');    // проверка в логах
 
                         const fullContent = `
                             <b>${regionData.name}</b><br>
@@ -108,8 +97,8 @@ Promise.all([
                             const closeBtn = document.getElementById('collapse-btn');
                             if (closeBtn) {
                                 closeBtn.addEventListener('click', () => {
-                                    console.log('Скрыли расширенную информацию');
-                                    showGlobalPopup(popupContent); // вернуть базовый вид
+                                    console.log('Скрыли расширенную информацию');    // проверка в логах
+                                    showGlobalPopup(popupContent);    // вернуть базовый вид
                                 });
                             }
                         }, 50);
@@ -120,7 +109,7 @@ Promise.all([
     });
 });
 
-// Показать popup с HTML-контентом
+// Показать popup с HTML-контентом в логах
 function showGlobalPopup(html) {
     globalPopup.innerHTML = html;
     globalPopup.style.display = 'block';
@@ -162,4 +151,44 @@ function getRegionKey(regionName) {
         "Kursk Oblast": { key: "kursk", name: "Курская область" }
     };
     return mapping[regionName];
+}
+
+function setupExpandHandler(regionData, temp, rain, wind, hourly, daily, popupContent) {
+    setTimeout(() => {
+        const btn = document.getElementById('expand-btn');
+        console.log('setupExpandHandler → Кнопка "Подробнее":', btn);
+
+        if (btn) {
+            btn.addEventListener('click', () => {
+                console.log('setupExpandHandler → Нажали на кнопку "Подробнее"');
+
+                const fullContent = `
+                    <b>${regionData.name}</b><br>
+                    Температура макс: ${temp} °C<br>
+                    Осадки: ${rain} мм<br>
+                    Ветер: ${wind} км/ч<br>
+                    Давление: ${hourly.pressure[0]} гПа<br>
+                    Влажность: ${hourly.humidity[0]} %<br>
+                    Облачность: ${hourly.cloudCover[0]} %<br>
+                    Видимость: ${hourly.visibility[0]} м<br>
+                    Индекс УФ: ${daily.uvIndexMax[0]}<br>
+                    <button id="collapse-btn">Скрыть</button>
+                `;
+                showGlobalPopup(fullContent);
+
+                setTimeout(() => {
+                    const closeBtn = document.getElementById('collapse-btn');
+                    console.log('setupExpandHandler → Кнопка "Скрыть":', closeBtn);
+
+                    if (closeBtn) {
+                        closeBtn.addEventListener('click', () => {
+                            console.log('setupExpandHandler → Скрыли расширенную информацию');
+                            showGlobalPopup(popupContent);
+                            setupExpandHandler(regionData, temp, rain, wind, hourly, daily, popupContent);
+                        });
+                    }
+                }, 50);
+            });
+        }
+    }, 50);
 }

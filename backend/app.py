@@ -1,5 +1,4 @@
 from flask import Flask, request, jsonify, send_from_directory
-
 import requests
 from regions import Regions
 
@@ -15,7 +14,7 @@ def Index():
 def StaticFiles(path):
     return send_from_directory('../frontend', path)
 
-# API для получения метеоданных
+# API: Получение метеоданных по одному региону
 @app.route('/api/weather', methods=['GET'])
 def GetWeather():
     regionKey = request.args.get('region')
@@ -29,6 +28,20 @@ def GetWeather():
         "data": data
     })
 
+# Получить метеоданные по всем регионам за один запрос
+@app.route('/api/weather/all', methods=['GET'])
+def GetAllWeather():
+    result = {}
+    for regionKey, regionData in Regions.items():
+        coords = regionData
+        data = FetchOpenMeteoData(coords['lat'], coords['lon'])
+        result[regionKey] = {
+            "region": coords['name'],
+            "data": data
+        }
+    return jsonify(result)
+
+# запрос к Open-Meteo API и объединение daily/hourly
 def FetchOpenMeteoData(Lat, Lon):
     url = "https://api.open-meteo.com/v1/forecast"
     params = {
@@ -71,6 +84,5 @@ def FetchOpenMeteoData(Lat, Lon):
 
     return combinedData
 
-    
 if __name__ == '__main__':
     app.run(debug=True)

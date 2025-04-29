@@ -1,100 +1,145 @@
 // Инициализация карты
 const map = L.map('map').setView([53.5, 39.5], 6);
 
-// Добавление базового слоя карты
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap contributors'
 }).addTo(map);
 
-// Загрузка GeoJSON с контурами областей
-fetch('russianGeo.geojson')
-    .then(response => response.json())
-    .then(geoData => {
-        // Добавляем контуры
-        L.geoJSON(geoData, {
-            style: {
-                color: '#3388ff',
-                weight: 2,
-                opacity: 1,
-                fillOpacity: 0.1
+// Кэш для метеоданных
+const weatherCache = {};
+
+// ⬇ Создаём глобальный popup как отдельный DOM-блок
+const globalPopup = document.createElement('div');
+globalPopup.id = 'weather-popup';
+globalPopup.style.position = 'absolute';
+globalPopup.style.top = '20px'; // можно изменить на 'bottom', 'left', 'right'
+globalPopup.style.right = '20px';
+globalPopup.style.zIndex = '1000';
+globalPopup.style.background = 'white';
+globalPopup.style.padding = '10px';
+globalPopup.style.border = '1px solid #ccc';
+globalPopup.style.borderRadius = '8px';
+globalPopup.style.minWidth = '200px';
+globalPopup.style.display = 'none'; // скрыт по умолчанию
+globalPopup.style.boxShadow = '0 2px 10px rgba(0,0,0,0.15)';
+document.body.appendChild(globalPopup);
+
+// Загрузка границ и погоды
+Promise.all([
+    fetch('russianGeo.geojson').then(res => res.json()),
+    fetchAllWeatherData()
+]).then(([geoData, weatherData]) => {
+    if (!weatherData) {
+        alert('Не удалось загрузить метеоданные');
+        return;
+    }
+
+    Object.assign(weatherCache, weatherData);
+    console.log('Погода загружена и закеширована:', weatherCache);
+
+    // Отображаем границы
+    L.geoJSON(geoData, {
+        style: {
+            color: '#3388ff',
+            weight: 2,
+            opacity: 1,
+            fillOpacity: 0.1
+        }
+    }).addTo(map);
+
+    // Добавляем маркеры
+    geoData.features.forEach(feature => {
+        const center = getRegionCenter(feature.geometry.coordinates, feature.geometry.type);
+        const regionData = getRegionKey(feature.properties.shapeName);
+        const marker = L.marker(center).addTo(map);
+
+        marker.on('click', () => {
+            console.log(`Клик по маркеру: ${regionData.name}`);
+            const weather = weatherCache[regionData.key];
+
+            if (!weather) {
+                showGlobalPopup(`<b>${regionData.name}</b><br>Данные недоступны`);
+                return;
             }
-        }).addTo(map);
 
-        // Добавляем маркеры в центры областей
-        geoData.features.forEach(feature => {
-            const center = getRegionCenter(feature.geometry.coordinates, feature.geometry.type);
-            const regionData = getRegionKey(feature.properties.shapeName); // key + name (рус)
+            const daily = weather.data.daily;
+            const hourly = weather.data.hourly;
 
-            const marker = L.marker(center).addTo(map);
+            const temp = daily.temperatureMax[0];
+            const rain = daily.precipitationSum[0];
+            const wind = hourly.windSpeed[0];
 
-            marker.on('click', async () => {
-                const weather = await fetchWeatherData(regionData.key);
+            // Отображаем базовую информацию и кнопку
+            const popupContent = `
+                <b>${regionData.name}</b><br>
+                Температура макс: ${temp} °C<br>
+                Осадки: ${rain} мм<br>
+                Ветер: ${wind} км/ч<br>
+                <button id="expand-btn">Подробнее</button>
+            `;
 
-                if (weather) {
-                    const daily = weather.data.daily;
-                    const hourly = weather.data.hourly;
+            showGlobalPopup(popupContent);
 
-                    const temp = daily.temperatureMax[0];
-                    const rain = daily.precipitationSum[0];
-                    const wind = hourly.windSpeed[0];
+            // Таймаут нужен, чтобы DOM успел вставить кнопку
+            setTimeout(() => {
+                const btn = document.getElementById('expand-btn');
+                console.log('Ищу кнопку "Подробнее":', btn);
 
-                    // Базовый popup с кнопкой
-                    const popupContent = `
-                        <b>${regionData.name}</b><br>
-                        Температура макс: ${temp} °C<br>
-                        Осадки: ${rain} мм<br>
-                        Ветер: ${wind} км/ч<br>
-                        <button class="expand-btn">Подробнее</button>
-                    `;
+                if (btn) {
+                    btn.addEventListener('click', () => {
+                        console.log('Нажали на кнопку "Подробнее"');
 
-                    marker.bindPopup(popupContent).openPopup();
+                        const fullContent = `
+                            <b>${regionData.name}</b><br>
+                            Температура макс: ${temp} °C<br>
+                            Осадки: ${rain} мм<br>
+                            Ветер: ${wind} км/ч<br>
+                            Давление: ${hourly.pressure[0]} гПа<br>
+                            Влажность: ${hourly.humidity[0]} %<br>
+                            Облачность: ${hourly.cloudCover[0]} %<br>
+                            Видимость: ${hourly.visibility[0]} м<br>
+                            Индекс УФ: ${daily.uvIndexMax[0]}<br>
+                            <button id="collapse-btn">Скрыть</button>
+                        `;
+                        showGlobalPopup(fullContent);
 
-                    // Обработка кнопки после отрисовки popup
-                    marker.on('popupopen', () => {
-                        const popupElement = marker.getPopup().getElement();
+                        // Повторная навешка для кнопки "Скрыть"
                         setTimeout(() => {
-                            const button = popupElement.querySelector('.expand-btn');
-                            if (button) {
-                                button.addEventListener('click', () => {
-                                    const fullContent = `
-                                        <b>${regionData.name}</b><br>
-                                        Температура макс: ${temp} °C<br>
-                                        Осадки: ${rain} мм<br>
-                                        Ветер: ${wind} км/ч<br>
-                                        Давление: ${hourly.pressure[0]} гПа<br>
-                                        Влажность: ${hourly.humidity[0]} %<br>
-                                        Облачность: ${hourly.cloudCover[0]} %<br>
-                                        Видимость: ${hourly.visibility[0]} м<br>
-                                        Индекс УФ: ${daily.uvIndexMax[0]}
-                                    `;
-                                    marker.setPopupContent(fullContent);
+                            const closeBtn = document.getElementById('collapse-btn');
+                            if (closeBtn) {
+                                closeBtn.addEventListener('click', () => {
+                                    console.log('Скрыли расширенную информацию');
+                                    showGlobalPopup(popupContent); // вернуть базовый вид
                                 });
                             }
-                        }, 50); // небольшая задержка
+                        }, 50);
                     });
-
-                } else {
-                    marker.bindPopup(`<b>${regionData.name}</b><br>Данные недоступны`).openPopup();
                 }
-            });
+            }, 50);
         });
     });
+});
 
-// Функция расчёта центра области (Polygon + MultiPolygon)
+// Показать popup с HTML-контентом
+function showGlobalPopup(html) {
+    globalPopup.innerHTML = html;
+    globalPopup.style.display = 'block';
+    console.log('Отображаем popup с содержимым:', html);
+}
+
+// Центр региона
 function getRegionCenter(coordinates, type) {
     let latSum = 0, lonSum = 0, count = 0;
 
     if (type === 'Polygon') {
-        const ring = coordinates[0];
-        ring.forEach(point => {
+        coordinates[0].forEach(point => {
             lonSum += point[0];
             latSum += point[1];
             count++;
         });
     } else if (type === 'MultiPolygon') {
         coordinates.forEach(polygon => {
-            const ring = polygon[0];
-            ring.forEach(point => {
+            polygon[0].forEach(point => {
                 lonSum += point[0];
                 latSum += point[1];
                 count++;
@@ -105,7 +150,7 @@ function getRegionCenter(coordinates, type) {
     return [latSum / count, lonSum / count];
 }
 
-// Преобразование названий областей (key + name)
+// Преобразование названий регионов
 function getRegionKey(regionName) {
     const mapping = {
         "Ryazan Oblast": { key: "ryazan", name: "Рязанская область" },

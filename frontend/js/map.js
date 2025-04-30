@@ -1,120 +1,171 @@
 // Инициализация карты
 const map = L.map('map').setView([53.5, 39.5], 6);
 
+// Добавление фона карты (OpenStreetMap)
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap contributors'
 }).addTo(map);
 
-// Кэш для метеоданных
+// Глобальный popup
+const globalPopup = document.getElementById('weather-popup');
+
+// Кэш данных погоды
 const weatherCache = {};
 
-// Создает глобальный popup как отдельный DOM блок
-const globalPopup = document.getElementById('weather-popup'); 
+// Загрузка и обработка данных
+async function fetchData() {
+    try {
+        // Сначала загружаем GeoJSON данные и метеоданные
+        const geoData = await fetchGeoData();
+        const weatherData = await fetchWeatherData();
 
+        if (!weatherData) {
+            alert('Не удалось загрузить метеоданные');
+            return;
+        }
 
-// Загрузка границ и погоды
-Promise.all([
-    fetch('russianGeo.geojson').then(res => res.json()),
-    fetchAllWeatherData()
-]).then(([geoData, weatherData]) => {
-    if (!weatherData) {
-        alert('Не удалось загрузить метеоданные');
-        return;
+        // Кэшируем полученные данные
+        Object.assign(weatherCache, weatherData);
+        console.log('Погода загружена и закеширована:', weatherCache);
+
+        // После этого добавляем контуры и маркеры на карту
+        initializeMap(geoData);
+    } catch (error) {
+        console.error('Ошибка при загрузке данных:', error);
     }
+}
 
-    Object.assign(weatherCache, weatherData);
-    console.log('Погода загружена и закеширована:', weatherCache);    // проверка в логах
+// Загрузка данных GeoJSON (границы)
+async function fetchGeoData() {
+    const response = await fetch('russianGeo.geojson');
+    return response.json();
+}
 
-    // Отображает границы
+// Загрузка метеоданных
+async function fetchWeatherData() {
+    return fetchAllWeatherData();
+}
+
+// Инициализация карты и маркеров
+function initializeMap(geoData) {
+    // Добавление GeoJSON данных на карту (контуры)
     L.geoJSON(geoData, {
         style: {
             color: '#3388ff',
             weight: 2,
             opacity: 1,
             fillOpacity: 0.1
+        },
+        onEachFeature: function (feature, layer) {
+            console.log('Добавляем регион:', feature.properties.name);  // Проверка, добавляются ли регионы
         }
     }).addTo(map);
 
-    // Добавляем маркеры
+    // Добавление маркеров
     geoData.features.forEach(feature => {
         const center = getRegionCenter(feature.geometry.coordinates, feature.geometry.type);
         const regionData = getRegionKey(feature.properties.shapeName);
         const marker = L.marker(center).addTo(map);
 
-        marker.on('click', () => {
-            console.log(`Клик по маркеру: ${regionData.name}`);    // проверка в логах
-            const weather = weatherCache[regionData.key];
-
-            if (!weather) {
-                showGlobalPopup(`<b>${regionData.name}</b><br>Данные недоступны`);
-                return;
-            }
-
-            const daily = weather.data.daily;
-            const hourly = weather.data.hourly;
-
-            const temp = daily.temperatureMax[0];
-            const rain = daily.precipitationSum[0];
-            const wind = hourly.windSpeed[0];
-
-            // Отображаем базовую информацию и кнопку
-            const popupContent = `
-                <b>${regionData.name}</b><br>
-                Температура макс: ${temp} °C<br>
-                Осадки: ${rain} мм<br>
-                Ветер: ${wind} км/ч<br>
-                <button id="expand-btn">Подробнее</button>
-            `;
-
-            showGlobalPopup(popupContent);
-            setupExpandHandler(regionData, temp, rain, wind, hourly, daily, popupContent);
-
-            // Таймаут нужен, чтобы DOM успел вставить кнопку
-            setTimeout(() => {
-                const btn = document.getElementById('expand-btn');
-                console.log('Ищу кнопку "Подробнее":', btn);    // проверка в логах
-
-                if (btn) {
-                    btn.addEventListener('click', () => {
-                        console.log('Нажали на кнопку "Подробнее"');    // проверка в логах
-
-                        const fullContent = `
-                            <b>${regionData.name}</b><br>
-                            Температура макс: ${temp} °C<br>
-                            Осадки: ${rain} мм<br>
-                            Ветер: ${wind} км/ч<br>
-                            Давление: ${hourly.pressure[0]} гПа<br>
-                            Влажность: ${hourly.humidity[0]} %<br>
-                            Облачность: ${hourly.cloudCover[0]} %<br>
-                            Видимость: ${hourly.visibility[0]} м<br>
-                            Индекс УФ: ${daily.uvIndexMax[0]}<br>
-                            <button id="collapse-btn">Скрыть</button>
-                        `;
-                        showGlobalPopup(fullContent);
-
-                        // Повторная навешка для кнопки "Скрыть"
-                        setTimeout(() => {
-                            const closeBtn = document.getElementById('collapse-btn');
-                            if (closeBtn) {
-                                closeBtn.addEventListener('click', () => {
-                                    console.log('Скрыли расширенную информацию');    // проверка в логах
-                                    showGlobalPopup(popupContent);    // вернуть базовый вид
-                                });
-                            }
-                        }, 50);
-                    });
-                }
-            }, 50);
-        });
+        // Навешиваем обработчик на клик
+        marker.on('click', () => handleMarkerClick(regionData));
     });
-});
+}
 
-// Показать popup с HTML-контентом в логах
+// Обработка клика на маркер
+async function handleMarkerClick(regionData) {
+    const weather = weatherCache[regionData.key];  // Загружаем данные о погоде из кэша
+    const popupContent = await getPopupContent(regionData, weather);
+
+    showGlobalPopup(popupContent);
+    setupExpandHandler(regionData, weather, popupContent);  // Передаем regionData и weather
+}
+
+
+// Получение контента для popup
+async function getPopupContent(regionData, weather) {
+    if (!weather) {
+        return `<b>${regionData.name}</b><br>Данные недоступны`;
+    }
+
+    const daily = weather.data.daily;
+    const hourly = weather.data.hourly;
+
+    const temp = daily.temperatureMax[0];
+    const rain = daily.precipitationSum[0];
+    const wind = hourly.windSpeed[0];
+
+    return `
+        <b>${regionData.name}</b><br>
+        Температура макс: ${temp} °C<br>
+        Осадки: ${rain} мм<br>
+        Ветер: ${wind} км/ч<br>
+        <button id="expand-btn">Подробнее</button>
+    `;
+}
+
+// Показать popup с содержимым
 function showGlobalPopup(html) {
     globalPopup.innerHTML = html;
     globalPopup.style.display = 'block';
     console.log('Отображаем popup с содержимым:', html);
 }
+
+// Разделение функционала кнопки "Подробнее"
+function setupExpandHandler(regionData, weather, popupContent) {
+    setTimeout(() => {
+        const btn = document.getElementById('expand-btn');
+        console.log('Ищу кнопку "Подробнее":', btn);
+
+        if (btn) {
+            btn.addEventListener('click', () => {
+                console.log('Нажали на кнопку "Подробнее"');
+
+                const fullContent = generateFullContent(regionData, weather);
+                showGlobalPopup(fullContent);
+
+                setupCollapseHandler(popupContent, regionData, weather);  // Передаем regionData и weather
+            });
+        }
+    }, 50);
+}
+
+
+// Генерация расширенного контента
+function generateFullContent(regionData, weather) {
+    const daily = weather.data.daily;
+    const hourly = weather.data.hourly;
+
+    return `
+        <b>${regionData.name}</b><br>
+        Температура макс: ${daily.temperatureMax[0]} °C<br>
+        Осадки: ${daily.precipitationSum[0]} мм<br>
+        Ветер: ${hourly.windSpeed[0]} км/ч<br>
+        Давление: ${hourly.pressure[0]} гПа<br>
+        Влажность: ${hourly.humidity[0]} %<br>
+        Облачность: ${hourly.cloudCover[0]} %<br>
+        Видимость: ${hourly.visibility[0]} м<br>
+        Индекс УФ: ${daily.uvIndexMax[0]}<br>
+        <button id="collapse-btn">Скрыть</button>
+    `;
+}
+
+// Разделение функционала кнопки "Скрыть"
+function setupCollapseHandler(popupContent, regionData, weather) {
+    setTimeout(() => {
+        const closeBtn = document.getElementById('collapse-btn');
+        console.log('Ищу кнопку "Скрыть":', closeBtn);
+
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                console.log('Скрыли расширенную информацию');
+                showGlobalPopup(popupContent);
+                setupExpandHandler(regionData, weather, popupContent);  // Передаем regionData и weather
+            });
+        }
+    }, 50);
+}
+
 
 // Центр региона
 function getRegionCenter(coordinates, type) {
@@ -153,42 +204,5 @@ function getRegionKey(regionName) {
     return mapping[regionName];
 }
 
-function setupExpandHandler(regionData, temp, rain, wind, hourly, daily, popupContent) {
-    setTimeout(() => {
-        const btn = document.getElementById('expand-btn');
-        console.log('setupExpandHandler → Кнопка "Подробнее":', btn);
-
-        if (btn) {
-            btn.addEventListener('click', () => {
-                console.log('setupExpandHandler → Нажали на кнопку "Подробнее"');
-
-                const fullContent = `
-                    <b>${regionData.name}</b><br>
-                    Температура макс: ${temp} °C<br>
-                    Осадки: ${rain} мм<br>
-                    Ветер: ${wind} км/ч<br>
-                    Давление: ${hourly.pressure[0]} гПа<br>
-                    Влажность: ${hourly.humidity[0]} %<br>
-                    Облачность: ${hourly.cloudCover[0]} %<br>
-                    Видимость: ${hourly.visibility[0]} м<br>
-                    Индекс УФ: ${daily.uvIndexMax[0]}<br>
-                    <button id="collapse-btn">Скрыть</button>
-                `;
-                showGlobalPopup(fullContent);
-
-                setTimeout(() => {
-                    const closeBtn = document.getElementById('collapse-btn');
-                    console.log('setupExpandHandler → Кнопка "Скрыть":', closeBtn);
-
-                    if (closeBtn) {
-                        closeBtn.addEventListener('click', () => {
-                            console.log('setupExpandHandler → Скрыли расширенную информацию');
-                            showGlobalPopup(popupContent);
-                            setupExpandHandler(regionData, temp, rain, wind, hourly, daily, popupContent);
-                        });
-                    }
-                }, 50);
-            });
-        }
-    }, 50);
-}
+// Запуск загрузки данных
+fetchData();

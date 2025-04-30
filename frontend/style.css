@@ -1,19 +1,26 @@
 #map {
-    height: 1200px;
+    height: 720px;
     width: 100%;
+}
+#header {
+    text-align: center;
 }
 
 .weather-popup {
     position: absolute;
-    top: 50%;                 /* центр по вертикали */
-    right: 20px;              /* прижат к правому краю */
-    transform: translateY(-50%); /* выравнивание по центру */
+    top: 50%;             
+    right: 20px; 
+    transform: translateY(-50%);
     z-index: 1000;
-    background: white;
-    padding: 12px 16px;
-    border: 1px solid #ccc;
+    background: #e0e0e0;
+    padding: 15px 50px;
+    margin-right: 100px;
+    border: 3px solid #8e8e8e;
     border-radius: 8px;
     min-width: 220px;
-    font-size: 16px;          /* крупный шрифт */
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+    font-size: 20px;
+}
+
+body {
+    background-color: #e0e0e0;
 }
